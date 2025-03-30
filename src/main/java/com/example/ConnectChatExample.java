@@ -14,11 +14,14 @@ import software.amazon.awssdk.services.connectparticipant.model.DisconnectPartic
 import software.amazon.awssdk.services.connectparticipant.model.SendMessageRequest;
 import software.amazon.awssdk.services.connectparticipant.model.SendMessageResponse;
 
-import java.io.IOException;
 import java.net.URI;
-import java.time.Instant;
+import java.net.http.WebSocket;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
+
+import java.util.concurrent.CompletionStage;
+import java.util.Arrays;
 
 /**
  * 使用AWS SDK for Java调用Amazon Connect的StartChatContact API发起聊天
@@ -28,7 +31,7 @@ public class ConnectChatExample {
     public static void main(String[] args) {
         // 替换为你的实际配置
         String instanceId = "b7e4b4ed-1bdf-4b14-b624-d9328f08725a"; // Amazon Connect实例ID
-        String contactFlowId = "4fd58c6f-bfa4-40cc-8bb7-e82adab81d3a"; // 联系流ID
+        String contactFlowId = "4fd58c6f-bfa4-40cc-8bb7-e82adab81d3a"; // 联系流ID Sample Inbound Flow Test
         String participantName = "Customer"; // 参与者名称
         Region region = Region.US_EAST_1; // 替换为您的AWS区域
 
@@ -41,14 +44,77 @@ public class ConnectChatExample {
             }
 
             // 步骤2: 使用participantToken创建参与者连接
-            String connectionToken = createParticipantConnection(participantToken, region);
+            CreateParticipantConnectionResponse connectionResponse = createParticipantConnection(participantToken,
+                    region);
+
+            String connectionToken = connectionResponse.connectionCredentials().connectionToken();
             if (connectionToken == null) {
                 System.err.println("无法获取connectionToken，退出程序");
                 return;
             }
 
-            // 步骤3: 使用connectionToken发送消息
+            String webSocketUrl = connectionResponse.websocket().url();
+            if (webSocketUrl == null) {
+                System.err.println("无法获取websocketUrl，退出程序");
+                return;
+            }
+
+            // 步骤3: 创建WebSocket连接以获取实时更新
+            // 从participantConnection响应中获取WebSocket URL
+            // 获取WebSocket URL
+            System.out.println("获取到WebSocket URL: " + webSocketUrl);
+
+            // 创建WebSocket连接
+            WebSocket webSocket = createWebSocket(
+                    webSocketUrl,
+                    // 处理接收到的消息
+                    (message) -> {
+                        System.out.println("\n收到新的WebSocket消息: ");
+                        System.out.println("--------------------");
+                        System.out.println(message);
+                        System.out.println("--------------------");
+
+                        // 这里可以添加解析消息的代码
+                        try {
+                            // 假设消息是JSON格式
+                            // 这需要添加JSON解析库依赖，如Jackson或GSON
+                            // JSONObject jsonMessage = new JSONObject(message);
+                            // 处理JSON消息...
+                        } catch (Exception e) {
+                            System.err.println("解析消息失败: " + e.getMessage());
+                        }
+                    },
+                    // 连接失败处理
+                    (error) -> {
+                        System.err.println("WebSocket连接失败: " + error);
+                    },
+                    // 连接成功后执行
+                    () -> {
+                        System.out.println("WebSocket连接已建立，开始接收消息...");
+                    });
+
+            System.out.println("WebSocket连接创建成功，准备发送测试消息...");
+
+            // 步骤4: 使用connectionToken发送消息
             sendChatMessage(connectionToken, "您好，这是一条测试消息！", region);
+
+            // 保持程序运行一段时间，以便接收WebSocket消息
+            System.out.println("等待接收消息...");
+            try {
+                // 等待120秒，以便接收消息
+                Thread.sleep(120000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("等待被中断: " + e.getMessage());
+            }
+
+            // 断开参与者连接
+            System.out.println("断开参与者连接...");
+            disconnectParticipant(connectionToken, region);
+
+            // 关闭WebSocket连接
+            webSocket.abort();
+            System.out.println("WebSocket连接已关闭，程序即将退出。");
 
         } catch (Exception e) {
             System.err.println("处理过程中发生错误: " + e.getMessage());
@@ -71,7 +137,7 @@ public class ConnectChatExample {
 
             // 创建聊天属性
             Map<String, String> attributes = new HashMap<>();
-            attributes.put("customerName", "API Test User");
+            attributes.put("Test", "True");
 
             // 构建请求
             StartChatContactRequest chatRequest = StartChatContactRequest.builder()
@@ -106,7 +172,8 @@ public class ConnectChatExample {
     /**
      * 使用participantToken创建参与者连接并获取connectionToken
      */
-    private static String createParticipantConnection(String participantToken, Region region) {
+    private static CreateParticipantConnectionResponse createParticipantConnection(String participantToken,
+            Region region) {
         System.out.println("正在创建参与者连接...");
         try {
             // 创建ConnectParticipantClient
@@ -117,7 +184,7 @@ public class ConnectChatExample {
             // 构建创建连接请求
             CreateParticipantConnectionRequest connectionRequest = CreateParticipantConnectionRequest.builder()
                     .participantToken(participantToken)
-                    .type(ConnectionType.CONNECTION_CREDENTIALS)
+                    .type(Arrays.asList(ConnectionType.CONNECTION_CREDENTIALS, ConnectionType.WEBSOCKET))
                     .build();
 
             // 发送请求
@@ -127,11 +194,15 @@ public class ConnectChatExample {
             // 获取connectionToken
             String connectionToken = connectionResponse.connectionCredentials().connectionToken();
 
+            // 获取websocketUrl
+            String websocketUrl = connectionResponse.websocket().url();
+
             System.out.println("参与者连接创建成功！");
             // 出于安全考虑，只打印token的一部分
             System.out.println("连接Token: " + connectionToken.substring(0, 10) + "...");
+            System.out.println("连接WebSocket Url: " + websocketUrl);
 
-            return connectionToken;
+            return connectionResponse;
 
         } catch (Exception e) {
             System.err.println("创建参与者连接时出错: " + e.getMessage());
@@ -172,4 +243,123 @@ public class ConnectChatExample {
         }
     }
 
+    /**
+     * 创建一个WebSocket 连接
+     */
+    private static WebSocket createWebSocket(
+            String url,
+            Consumer<String> onMessageReceived,
+            Consumer<String> onConnectionFailed,
+            Runnable onConnectionOpen) {
+
+        // 参数验证
+        if (url == null || url.trim().isEmpty()) {
+            throw new IllegalArgumentException("WebSocket URL cannot be empty");
+        }
+        if (onMessageReceived == null) {
+            throw new IllegalArgumentException("Message receiver callback cannot be null");
+        }
+
+        try {
+            // 创建WebSocket监听器
+            java.net.http.WebSocket.Listener listener = new java.net.http.WebSocket.Listener() {
+                StringBuilder messageBuilder = new StringBuilder();
+
+                @Override
+                public CompletionStage<?> onText(java.net.http.WebSocket webSocket,
+                        CharSequence data,
+                        boolean last) {
+                    messageBuilder.append(data);
+
+                    // 如果是消息的最后部分，处理完整消息
+                    if (last) {
+                        String message = messageBuilder.toString();
+                        System.out.println("WebSocket: Message received");
+                        onMessageReceived.accept(message);
+                        messageBuilder.setLength(0); // 清空缓冲区
+                    }
+
+                    // 请求更多数据
+                    webSocket.request(1);
+                    return null;
+                }
+
+                @Override
+                public void onOpen(java.net.http.WebSocket webSocket) {
+                    System.out.println("WebSocket: Connection established");
+
+                    // 重要：发送订阅消息
+                    String subscribeMessage = "{\"topic\": \"aws/subscribe\", \"content\": {\"topics\": [\"aws/chat\"]}}";
+                    System.out.println("发送订阅消息: " + subscribeMessage);
+                    webSocket.sendText(subscribeMessage, true);
+
+                    // 如果提供了连接成功的回调，则执行
+                    if (onConnectionOpen != null) {
+                        onConnectionOpen.run();
+                    }
+
+                    // 请求数据
+                    webSocket.request(1);
+                }
+
+                @Override
+                public CompletionStage<?> onClose(java.net.http.WebSocket webSocket,
+                        int statusCode,
+                        String reason) {
+                    System.out.println("WebSocket: Connection closed: " + reason);
+                    return null;
+                }
+
+                @Override
+                public void onError(java.net.http.WebSocket webSocket,
+                        Throwable error) {
+                    String errorMessage = error.getMessage() != null ? error.getMessage() : "Unknown error";
+                    System.err.println("WebSocket: Connection failed: " + errorMessage);
+                    error.printStackTrace();
+                    onConnectionFailed.accept(errorMessage);
+                }
+            };
+
+            // 创建HttpClient
+            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+
+            // 创建并返回WebSocket
+            return client.newWebSocketBuilder()
+                    .buildAsync(URI.create(url), listener)
+                    .join();
+
+        } catch (Exception e) {
+            System.err.println("创建WebSocket时出错: " + e.getMessage());
+            e.printStackTrace();
+            onConnectionFailed.accept(e.getMessage() != null ? e.getMessage() : "Unknown error");
+            throw new RuntimeException("创建WebSocket连接失败", e);
+        }
+    }
+
+    /**
+     * 断开参与者连接
+     */
+    private static void disconnectParticipant(String connectionToken, Region region) {
+        System.out.println("正在断开参与者连接...");
+        try {
+            // 创建ConnectParticipantClient
+            ConnectParticipantClient participantClient = ConnectParticipantClient.builder()
+                    .region(region)
+                    .build();
+
+            // 构建断开连接请求
+            DisconnectParticipantRequest disconnectRequest = DisconnectParticipantRequest.builder()
+                    .connectionToken(connectionToken)
+                    .build();
+
+            // 发送请求
+            participantClient.disconnectParticipant(disconnectRequest);
+
+            System.out.println("参与者连接已成功断开！");
+
+        } catch (Exception e) {
+            System.err.println("断开参与者连接时出错: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
 }
