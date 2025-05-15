@@ -13,6 +13,12 @@ import software.amazon.awssdk.services.connectparticipant.model.CreateParticipan
 import software.amazon.awssdk.services.connectparticipant.model.DisconnectParticipantRequest;
 import software.amazon.awssdk.services.connectparticipant.model.SendMessageRequest;
 import software.amazon.awssdk.services.connectparticipant.model.SendMessageResponse;
+import software.amazon.awssdk.services.connectparticipant.model.SendEventRequest;
+import software.amazon.awssdk.services.connectparticipant.model.SendEventResponse;
+
+// 添加JSON解析库
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.net.http.WebSocket;
@@ -74,14 +80,66 @@ public class ConnectChatExample {
                         System.out.println(message);
                         System.out.println("--------------------");
 
-                        // 这里可以添加解析消息的代码
+                        // 解析消息
                         try {
-                            // 假设消息是JSON格式
-                            // 这需要添加JSON解析库依赖，如Jackson或GSON
-                            // JSONObject jsonMessage = new JSONObject(message);
-                            // 处理JSON消息...
+                            ObjectMapper mapper = new ObjectMapper();
+                            JsonNode jsonMessage = mapper.readTree(message);
+
+                            // 检查消息类型
+                            if (jsonMessage.has("content")) {
+                                String contentValue = jsonMessage.get("content").asText();
+                                jsonMessage = mapper.readTree(contentValue);
+                                if (jsonMessage.has("ContentType")) {
+                                    String contentType = jsonMessage.get("ContentType").asText();
+                                    String participantRole = jsonMessage.has("ParticipantRole")
+                                            ? jsonMessage.get("ParticipantRole").asText()
+                                            : "";
+                                    String displayName = jsonMessage.has("DisplayName")
+                                            ? jsonMessage.get("DisplayName").asText()
+                                            : "";
+
+                                    System.out.println("消息类型: " + contentType);
+
+                                    switch (contentType) {
+                                        case "application/vnd.amazonaws.connect.event.typing":
+                                            System.out.println(displayName + " (" + participantRole + ") 正在输入...");
+                                            break;
+                                        case "application/vnd.amazonaws.connect.event.participant.joined":
+                                            System.out.println(displayName + " (" + participantRole + ") 已加入聊天");
+                                            break;
+                                        case "application/vnd.amazonaws.connect.event.participant.left":
+                                            System.out.println(displayName + " (" + participantRole + ") 已离开聊天");
+                                            break;
+                                        case "application/vnd.amazonaws.connect.event.chat.ended":
+                                            System.out.println("聊天已结束");
+                                            break;
+                                        case "text/plain":
+                                            if (jsonMessage.has("Content")) {
+                                                String content = jsonMessage.get("Content").asText();
+                                                System.out.println(
+                                                        displayName + " (" + participantRole + "): " + content);
+                                            }
+                                            break;
+                                        case "application/vnd.amazonaws.connect.event.message.delivered":
+                                            System.out.println("消息已送达");
+                                            break;
+                                        case "application/vnd.amazonaws.connect.event.message.read":
+                                            System.out.println("消息已读");
+                                            break;
+                                        default:
+                                            System.out.println("未知消息类型: " + contentType);
+                                    }
+                                } else if (jsonMessage.has("topic")) {
+                                    // 处理订阅确认消息
+                                    String topic = jsonMessage.get("topic").asText();
+                                    if ("aws/subscribe".equals(topic)) {
+                                        System.out.println("成功订阅主题");
+                                    }
+                                }
+                            }
                         } catch (Exception e) {
                             System.err.println("解析消息失败: " + e.getMessage());
+                            e.printStackTrace();
                         }
                     },
                     // 连接失败处理
@@ -95,8 +153,32 @@ public class ConnectChatExample {
 
             System.out.println("WebSocket连接创建成功，准备发送测试消息...");
 
-            // 步骤4: 使用connectionToken发送消息
-            sendChatMessage(connectionToken, "您好，这是一条测试消息！", region);
+            // 步骤4: 发送typing事件
+            sendTypingEvent(connectionToken, region);
+
+            // 等待1秒
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // 步骤5: 使用connectionToken发送消息
+            SendMessageResponse messageResponse = sendChatMessage(connectionToken, "您好，这是一条测试消息！", region);
+
+            // 保存消息ID，用于后续发送已读回执
+            String messageId = messageResponse != null ? messageResponse.id() : null;
+
+            // 等待3秒后发送已读回执
+            if (messageId != null) {
+                try {
+                    Thread.sleep(3000);
+                    // 发送已读回执
+                    sendReadReceipt(connectionToken, messageId, region);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
 
             // 保持程序运行一段时间，以便接收WebSocket消息
             System.out.println("等待接收消息...");
@@ -213,8 +295,10 @@ public class ConnectChatExample {
 
     /**
      * 使用connectionToken发送聊天消息
+     * 
+     * @return 发送消息的响应，包含消息ID
      */
-    private static void sendChatMessage(String connectionToken, String messageContent, Region region) {
+    private static SendMessageResponse sendChatMessage(String connectionToken, String messageContent, Region region) {
         System.out.println("正在发送消息...");
         try {
             // 创建ConnectParticipantClient
@@ -237,9 +321,12 @@ public class ConnectChatExample {
             System.out.println("消息ID: " + messageResponse.id());
             System.out.println("消息时间戳: " + messageResponse.absoluteTime());
 
+            return messageResponse;
+
         } catch (Exception e) {
             System.err.println("发送消息时出错: " + e.getMessage());
             e.printStackTrace();
+            return null;
         }
     }
 
@@ -333,6 +420,69 @@ public class ConnectChatExample {
             e.printStackTrace();
             onConnectionFailed.accept(e.getMessage() != null ? e.getMessage() : "Unknown error");
             throw new RuntimeException("创建WebSocket连接失败", e);
+        }
+    }
+
+    /**
+     * 发送正在输入事件
+     */
+    private static void sendTypingEvent(String connectionToken, Region region) {
+        System.out.println("正在发送输入事件...");
+        try {
+            // 创建ConnectParticipantClient
+            ConnectParticipantClient participantClient = ConnectParticipantClient.builder()
+                    .region(region)
+                    .build();
+
+            // 构建发送事件请求
+            SendEventRequest eventRequest = SendEventRequest.builder()
+                    .connectionToken(connectionToken)
+                    .contentType("application/vnd.amazonaws.connect.event.typing")
+                    .build();
+
+            // 发送事件
+            SendEventResponse eventResponse = participantClient.sendEvent(eventRequest);
+
+            // 输出结果
+            System.out.println("输入事件发送成功！");
+            System.out.println("事件ID: " + eventResponse.id());
+            System.out.println("事件时间戳: " + eventResponse.absoluteTime());
+
+        } catch (Exception e) {
+            System.err.println("发送输入事件时出错: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 发送消息已读事件
+     */
+    private static void sendReadReceipt(String connectionToken, String messageId, Region region) {
+        System.out.println("正在发送已读回执...");
+        try {
+            // 创建ConnectParticipantClient
+            ConnectParticipantClient participantClient = ConnectParticipantClient.builder()
+                    .region(region)
+                    .build();
+
+            // 构建发送事件请求
+            SendEventRequest eventRequest = SendEventRequest.builder()
+                    .connectionToken(connectionToken)
+                    .contentType("application/vnd.amazonaws.connect.event.message.read")
+                    .content("{\"messageId\": \"" + messageId + "\"}")
+                    .build();
+
+            // 发送事件
+            SendEventResponse eventResponse = participantClient.sendEvent(eventRequest);
+
+            // 输出结果
+            System.out.println("已读回执发送成功！");
+            System.out.println("事件ID: " + eventResponse.id());
+            System.out.println("事件时间戳: " + eventResponse.absoluteTime());
+
+        } catch (Exception e) {
+            System.err.println("发送已读回执时出错: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
