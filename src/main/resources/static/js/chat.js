@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // WebSocket连接
     let webSocket = null;
     
+    // 会话ID
+    let sessionId = localStorage.getItem('chatSessionId');
+    
     // 添加事件监听器
     startButton.addEventListener('click', startChatSession);
     sendButton.addEventListener('click', sendMessage);
@@ -26,6 +29,62 @@ document.addEventListener('DOMContentLoaded', function() {
             sendMessage();
         }
     });
+    
+    // 检查是否有保存的会话
+    checkSavedSession();
+    
+    // 检查保存的会话
+    function checkSavedSession() {
+        if (sessionId) {
+            // 检查会话是否仍然有效
+            fetch(`/api/chat/session?sessionId=${encodeURIComponent(sessionId)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.isActive === 'true') {
+                        // 恢复会话
+                        const savedMessages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+                        const savedWebSocketUrl = localStorage.getItem('webSocketUrl');
+                        
+                        // 恢复消息历史
+                        savedMessages.forEach(msg => {
+                            if (msg.type === 'system') {
+                                addSystemMessage(msg.content);
+                            } else if (msg.type === 'user') {
+                                addUserMessage(msg.content);
+                            } else if (msg.type === 'agent') {
+                                addAgentMessage(msg.content, msg.name);
+                            }
+                        });
+                        
+                        // 重新连接WebSocket
+                        if (savedWebSocketUrl) {
+                            connectWebSocket(savedWebSocketUrl);
+                        }
+                        
+                        // 更新UI
+                        updateStatus('已连接', 'connected');
+                        disableForm(true);
+                        enableChatControls(true);
+                        addSystemMessage('聊天会话已恢复');
+                    } else {
+                        // 会话已失效，清除本地存储
+                        clearChatSession();
+                    }
+                })
+                .catch(error => {
+                    console.error('检查会话状态出错:', error);
+                    clearChatSession();
+                });
+        }
+    }
+    
+    // 清除聊天会话数据
+    function clearChatSession() {
+        localStorage.removeItem('chatSessionId');
+        localStorage.removeItem('chatMessages');
+        localStorage.removeItem('webSocketUrl');
+        sessionId = null;
+    }
     
     // 开始聊天会话
     function startChatSession() {
@@ -55,6 +114,12 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
+                // 保存会话ID和WebSocket URL
+                sessionId = data.sessionId;
+                localStorage.setItem('chatSessionId', sessionId);
+                localStorage.setItem('webSocketUrl', data.websocketUrl);
+                localStorage.setItem('chatMessages', JSON.stringify([]));
+                
                 // 连接WebSocket
                 connectWebSocket(data.websocketUrl);
                 
@@ -129,6 +194,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 webSocket.close();
                 webSocket = null;
             }
+            
+            // 清除会话数据
+            clearChatSession();
             
             // 更新UI
             updateStatus('未连接', 'disconnected');
@@ -223,6 +291,13 @@ document.addEventListener('DOMContentLoaded', function() {
         messageElement.textContent = message;
         chatMessages.appendChild(messageElement);
         scrollToBottom();
+        
+        // 保存消息到本地存储
+        if (sessionId) {
+            const messages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            messages.push({ type: 'system', content: message });
+            localStorage.setItem('chatMessages', JSON.stringify(messages));
+        }
     }
     
     // 添加用户消息
@@ -232,6 +307,13 @@ document.addEventListener('DOMContentLoaded', function() {
         messageElement.textContent = message;
         chatMessages.appendChild(messageElement);
         scrollToBottom();
+        
+        // 保存消息到本地存储
+        if (sessionId) {
+            const messages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            messages.push({ type: 'user', content: message });
+            localStorage.setItem('chatMessages', JSON.stringify(messages));
+        }
     }
     
     // 添加客服消息
@@ -253,6 +335,13 @@ document.addEventListener('DOMContentLoaded', function() {
         messageElement.appendChild(contentSpan);
         chatMessages.appendChild(messageElement);
         scrollToBottom();
+        
+        // 保存消息到本地存储
+        if (sessionId) {
+            const messages = JSON.parse(localStorage.getItem('chatMessages') || '[]');
+            messages.push({ type: 'agent', content: message, name: name || 'Agent' });
+            localStorage.setItem('chatMessages', JSON.stringify(messages));
+        }
     }
     
     // 显示输入指示器

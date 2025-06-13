@@ -5,7 +5,10 @@
 ```bash
 确保已安装Maven和Java 11或更高版本
 
-在项目根目录执行：mvn spring-boot:run
+在项目根目录执行：
+
+mvn package
+mvn spring-boot:run
 
 打开浏览器访问：http://localhost:8080
 ```

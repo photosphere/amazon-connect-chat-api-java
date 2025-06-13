@@ -43,6 +43,7 @@ public class ChatController {
                     response.put("status", "success");
                     response.put("message", "聊天会话已创建");
                     response.put("websocketUrl", websocketUrl);
+                    response.put("sessionId", java.util.UUID.randomUUID().toString()); // 生成唯一会话ID
                     return response;
                 }
             }
@@ -56,6 +57,23 @@ public class ChatController {
             response.put("message", "创建聊天会话时出错: " + e.getMessage());
             return response;
         }
+    }
+    
+    @GetMapping("/session")
+    public Map<String, String> getSessionStatus(@RequestParam String sessionId) {
+        Map<String, String> response = new HashMap<>();
+        
+        if (connectionToken != null) {
+            response.put("status", "success");
+            response.put("message", "会话有效");
+            response.put("isActive", "true");
+        } else {
+            response.put("status", "error");
+            response.put("message", "会话无效或已过期");
+            response.put("isActive", "false");
+        }
+        
+        return response;
     }
 
     @PostMapping("/send")
