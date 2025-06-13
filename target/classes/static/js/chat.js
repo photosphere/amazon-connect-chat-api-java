@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: `message=${encodeURIComponent(message)}`
+            body: `message=${encodeURIComponent(message)}&sessionId=${encodeURIComponent(sessionId)}`
         })
         .then(response => response.json())
         .then(data => {
@@ -185,7 +185,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function endChatSession() {
         // 调用API结束聊天会话
         fetch('/api/chat/end', {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `sessionId=${encodeURIComponent(sessionId)}`
         })
         .then(response => response.json())
         .then(data => {

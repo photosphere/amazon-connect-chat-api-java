@@ -8,6 +8,7 @@ import software.amazon.awssdk.services.connectparticipant.model.SendMessageRespo
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/chat")
@@ -16,9 +17,9 @@ public class ChatController {
     @Autowired
     private ChatService chatService;
 
-    // 存储会话信息
-    private String participantToken;
-    private String connectionToken;
+    // 存储会话信息，使用ConcurrentHashMap保证线程安全
+    private final Map<String, String> participantTokens = new ConcurrentHashMap<>();
+    private final Map<String, String> connectionTokens = new ConcurrentHashMap<>();
     private Region region = Region.US_EAST_1; // 默认区域
 
     @PostMapping("/start")
@@ -29,7 +30,7 @@ public class ChatController {
         
         try {
             // 调用现有的startChatSession方法
-            participantToken = ConnectChatExample.startChatSession(instanceId, contactFlowId, region, participantName);
+            String participantToken = ConnectChatExample.startChatSession(instanceId, contactFlowId, region, participantName);
             
             if (participantToken != null) {
                 // 创建参与者连接
@@ -37,13 +38,20 @@ public class ChatController {
                     ConnectChatExample.createParticipantConnection(participantToken, region);
                 
                 if (connectionResponse != null) {
-                    connectionToken = connectionResponse.connectionCredentials().connectionToken();
+                    String connectionToken = connectionResponse.connectionCredentials().connectionToken();
                     String websocketUrl = connectionResponse.websocket().url();
+                    
+                    // 生成唯一会话ID
+                    String sessionId = java.util.UUID.randomUUID().toString();
+                    
+                    // 存储会话信息
+                    participantTokens.put(sessionId, participantToken);
+                    connectionTokens.put(sessionId, connectionToken);
                     
                     response.put("status", "success");
                     response.put("message", "聊天会话已创建");
                     response.put("websocketUrl", websocketUrl);
-                    response.put("sessionId", java.util.UUID.randomUUID().toString()); // 生成唯一会话ID
+                    response.put("sessionId", sessionId);
                     return response;
                 }
             }
@@ -63,7 +71,7 @@ public class ChatController {
     public Map<String, String> getSessionStatus(@RequestParam String sessionId) {
         Map<String, String> response = new HashMap<>();
         
-        if (connectionToken != null) {
+        if (connectionTokens.containsKey(sessionId)) {
             response.put("status", "success");
             response.put("message", "会话有效");
             response.put("isActive", "true");
@@ -77,9 +85,10 @@ public class ChatController {
     }
 
     @PostMapping("/send")
-    public Map<String, String> sendMessage(@RequestParam String message) {
+    public Map<String, String> sendMessage(@RequestParam String message, @RequestParam String sessionId) {
         Map<String, String> response = new HashMap<>();
         
+        String connectionToken = connectionTokens.get(sessionId);
         if (connectionToken == null) {
             response.put("status", "error");
             response.put("message", "未建立聊天会话，请先开始聊天");
@@ -110,9 +119,10 @@ public class ChatController {
     }
 
     @PostMapping("/end")
-    public Map<String, String> endChatSession() {
+    public Map<String, String> endChatSession(@RequestParam String sessionId) {
         Map<String, String> response = new HashMap<>();
         
+        String connectionToken = connectionTokens.get(sessionId);
         if (connectionToken == null) {
             response.put("status", "error");
             response.put("message", "未建立聊天会话");
@@ -123,9 +133,9 @@ public class ChatController {
             // 调用现有的disconnectParticipant方法
             ConnectChatExample.disconnectParticipant(connectionToken, region);
             
-            // 重置会话信息
-            connectionToken = null;
-            participantToken = null;
+            // 移除会话信息
+            connectionTokens.remove(sessionId);
+            participantTokens.remove(sessionId);
             
             response.put("status", "success");
             response.put("message", "聊天会话已结束");
