@@ -207,7 +207,7 @@ public class ConnectChatExample {
     /**
      * 创建聊天会话并获取participantToken
      */
-    private static String startChatSession(String instanceId, String contactFlowId, Region region,
+    public static String startChatSession(String instanceId, String contactFlowId, Region region,
             String participantName) {
         System.out.println("正在创建聊天会话...");
         try {
@@ -254,7 +254,7 @@ public class ConnectChatExample {
     /**
      * 使用participantToken创建参与者连接并获取connectionToken
      */
-    private static CreateParticipantConnectionResponse createParticipantConnection(String participantToken,
+    public static CreateParticipantConnectionResponse createParticipantConnection(String participantToken,
             Region region) {
         System.out.println("正在创建参与者连接...");
         try {
@@ -298,7 +298,7 @@ public class ConnectChatExample {
      * 
      * @return 发送消息的响应，包含消息ID
      */
-    private static SendMessageResponse sendChatMessage(String connectionToken, String messageContent, Region region) {
+    public static SendMessageResponse sendChatMessage(String connectionToken, String messageContent, Region region) {
         System.out.println("正在发送消息...");
         try {
             // 创建ConnectParticipantClient
@@ -489,7 +489,7 @@ public class ConnectChatExample {
     /**
      * 断开参与者连接
      */
-    private static void disconnectParticipant(String connectionToken, Region region) {
+    public static void disconnectParticipant(String connectionToken, Region region) {
         System.out.println("正在断开参与者连接...");
         try {
             // 创建ConnectParticipantClient

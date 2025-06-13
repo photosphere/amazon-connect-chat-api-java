@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon Connect 聊天应用</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="chat-container">
+        <h1>Amazon Connect 聊天应用</h1>
+        
+        <div class="setup-panel">
+            <h2>设置聊天</h2>
+            <div class="form-group">
+                <label for="instanceId">实例 ID:</label>
+                <input type="text" id="instanceId" value="b7e4b4ed-1bdf-4b14-b624-d9328f08725a">
+            </div>
+            <div class="form-group">
+                <label for="contactFlowId">联系流 ID:</label>
+                <input type="text" id="contactFlowId" value="4fd58c6f-bfa4-40cc-8bb7-e82adab81d3a">
+            </div>
+            <div class="form-group">
+                <label for="participantName">参与者名称:</label>
+                <input type="text" id="participantName" value="Customer">
+            </div>
+        </div>
+        
+        <div class="chat-panel">
+            <div class="chat-messages" id="chatMessages">
+                <div class="system-message">欢迎使用 Amazon Connect 聊天应用</div>
+            </div>
+            
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="输入消息..." disabled>
+                <div class="button-group">
+                    <button id="startButton" class="btn btn-primary">开始</button>
+                    <button id="sendButton" class="btn btn-success" disabled>发送</button>
+                    <button id="endButton" class="btn btn-danger" disabled>结束</button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status-panel">
+            <div id="statusMessage" class="status-message">未连接</div>
+            <div id="connectionStatus" class="connection-status disconnected">●</div>
+        </div>
+    </div>
+
+    <script src="js/chat.js"></script>
+</body>
+</html>
